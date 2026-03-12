@@ -1,0 +1,11 @@
+.DS_Store
+**/.DS_Store
+**/__MACOSX
+**/.vercel
+**/.next
+**/node_modules
+**/.env
+**/.env.local
+**/.env.development.local
+**/.env.test.local
+**/.env.production.local
