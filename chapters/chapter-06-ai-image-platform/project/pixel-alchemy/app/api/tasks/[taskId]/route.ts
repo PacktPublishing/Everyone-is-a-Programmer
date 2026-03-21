@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/client';
+import { createServiceRoleSupabaseClient } from '@/lib/supabase/client';
 import { replicateClient } from '@/lib/replicate/client';
 
 export async function GET(
@@ -16,7 +16,7 @@ export async function GET(
     }
 
     const token = authHeader.replace('Bearer ', '');
-    const supabase = createServerSupabaseClient();
+    const supabase = createServiceRoleSupabaseClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     
     if (authError || !user) {
@@ -53,28 +53,19 @@ export async function GET(
             .eq('id', taskId);
 
           // If the task is completed, save the image to the user library
-          if (replicateStatus.status === 'succeeded' && replicateStatus.output) {
+          if (replicateStatus.status === 'completed' && replicateStatus.output) {
             await saveImagesToUserLibrary(user.id, taskId, task, replicateStatus.output);
-            
-            // Points deducted
-            await supabase.rpc('update_user_credits', {
-              p_user_id: user.id,
-              p_amount: -task.cost_credits,
-              p_type: 'consumption',
-              p_description: `Image generation: ${task.task_type}`,
-              p_related_id: taskId
-            });
           }
           
           // If the task fails, points will be refunded
           if (replicateStatus.status === 'failed') {
-            await supabase.rpc('update_user_credits', {
-              p_user_id: user.id,
-              p_amount: task.cost_credits,
-              p_type: 'refund',
-              p_description: `Refund for failed generation: ${task.task_type}`,
-              p_related_id: taskId
-            });
+            await refundCreditsForFailedTask(
+              supabase,
+              user.id,
+              taskId,
+              task.task_type,
+              task.cost_credits,
+            );
           }
 
           // Retrieve updated tasks
@@ -105,7 +96,7 @@ async function saveImagesToUserLibrary(
   task: any, 
   outputImages: string[]
 ) {
-  const supabase = createServerSupabaseClient();
+  const supabase = createServiceRoleSupabaseClient();
   
   for (const imageUrl of outputImages) {
     await supabase
@@ -123,6 +114,37 @@ async function saveImagesToUserLibrary(
         width: task.model_config.width || 1024,
         height: task.model_config.height || 1024
       });
+  }
+}
+
+async function refundCreditsForFailedTask(
+  supabase: ReturnType<typeof createServiceRoleSupabaseClient>,
+  userId: string,
+  taskId: string,
+  taskType: string,
+  credits: number,
+) {
+  const { data: existingRefund } = await supabase
+    .from('credit_transactions')
+    .select('id')
+    .eq('related_id', taskId)
+    .eq('transaction_type', 'refund')
+    .maybeSingle();
+
+  if (existingRefund) {
+    return;
+  }
+
+  const { error: refundError } = await supabase.rpc('update_user_credits', {
+    p_user_id: userId,
+    p_amount: credits,
+    p_type: 'refund',
+    p_description: `Refund for failed generation: ${taskType}`,
+    p_related_id: taskId,
+  });
+
+  if (refundError) {
+    console.error('Failed to refund credits for task:', taskId, refundError);
   }
 }
 

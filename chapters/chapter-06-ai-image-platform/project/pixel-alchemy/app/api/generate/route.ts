@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { createServerSupabaseClient } from '@/lib/supabase/client';
+import { createServiceRoleSupabaseClient } from '@/lib/supabase/client';
 import { replicateClient } from '@/lib/replicate/client';
 
 export async function POST(request: NextRequest) {
@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     }
 
     const token = authHeader.replace('Bearer ', '');
-    const supabase = createServerSupabaseClient();
+    const supabase = createServiceRoleSupabaseClient();
     const { data: { user }, error: authError } = await supabase.auth.getUser(token);
     
     if (authError || !user) {
@@ -69,6 +69,45 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Failed to create task' }, { status: 500 });
     }
 
+    const { data: creditsConsumed, error: consumeCreditsError } = await supabase.rpc('consume_user_credits', {
+      p_user_id: user.id,
+      p_amount: requiredCredits,
+      p_related_id: task.id,
+      p_description: `Image generation: ${taskType}`,
+    });
+
+    if (consumeCreditsError) {
+      console.error('Failed to consume user credits:', consumeCreditsError);
+
+      await supabase
+        .from('generation_tasks')
+        .update({
+          status: 'failed',
+          error_message: 'Failed to reserve credits for this task',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', task.id);
+
+      return NextResponse.json({ error: 'Failed to reserve credits' }, { status: 500 });
+    }
+
+    if (!creditsConsumed) {
+      await supabase
+        .from('generation_tasks')
+        .update({
+          status: 'failed',
+          error_message: 'Insufficient credits',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', task.id);
+
+      return NextResponse.json({
+        error: 'Insufficient credits',
+        required: requiredCredits,
+        available: profile.credits,
+      }, { status: 402 });
+    }
+
     // 5. call Replicate API
     const replicateParams = {
       prompt,
@@ -82,7 +121,32 @@ export async function POST(request: NextRequest) {
       denoisingStrength: modelConfig.denoisingStrength
     };
 
-    const prediction = await replicateClient.generateImage(replicateParams);
+    let prediction;
+
+    try {
+      prediction = await replicateClient.generateImage(replicateParams);
+    } catch (error) {
+      console.error('Failed to start Replicate generation:', error);
+
+      await refundCreditsForFailedTask(
+        supabase,
+        user.id,
+        task.id,
+        task.task_type,
+        task.cost_credits,
+      );
+
+      await supabase
+        .from('generation_tasks')
+        .update({
+          status: 'failed',
+          error_message: error instanceof Error ? error.message : 'Failed to start image generation',
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', task.id);
+
+      return NextResponse.json({ error: 'Failed to start image generation' }, { status: 500 });
+    }
 
     // 6. Update task status
     await supabase
@@ -103,6 +167,37 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Generate image error:', error);
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
+  }
+}
+
+async function refundCreditsForFailedTask(
+  supabase: ReturnType<typeof createServiceRoleSupabaseClient>,
+  userId: string,
+  taskId: string,
+  taskType: string,
+  credits: number,
+) {
+  const { data: existingRefund } = await supabase
+    .from('credit_transactions')
+    .select('id')
+    .eq('related_id', taskId)
+    .eq('transaction_type', 'refund')
+    .maybeSingle();
+
+  if (existingRefund) {
+    return;
+  }
+
+  const { error: refundError } = await supabase.rpc('update_user_credits', {
+    p_user_id: userId,
+    p_amount: credits,
+    p_type: 'refund',
+    p_description: `Refund for failed generation: ${taskType}`,
+    p_related_id: taskId,
+  });
+
+  if (refundError) {
+    console.error('Failed to refund credits for task:', taskId, refundError);
   }
 }
 

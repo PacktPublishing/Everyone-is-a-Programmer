@@ -1658,8 +1658,8 @@ CREATE INDEX CONCURRENTLY idx_images_replicate_prediction ON images(replicate_pr
 
 -- Points transaction related index
 CREATE INDEX CONCURRENTLY idx_credit_transactions_user_created ON credit_transactions(user_id, created_at DESC);
-CREATE INDEX CONCURRENTLY idx_credit_transactions_user_type ON credit_transactions(user_id, type);
-CREATE INDEX CONCURRENTLY idx_credit_transactions_type_created ON credit_transactions(type, created_at);
+CREATE INDEX CONCURRENTLY idx_credit_transactions_user_type ON credit_transactions(user_id, transaction_type);
+CREATE INDEX CONCURRENTLY idx_credit_transactions_type_created ON credit_transactions(transaction_type, created_at);
 
 -- Order related index
 CREATE INDEX CONCURRENTLY idx_orders_user_status ON orders(user_id, status);
@@ -2673,7 +2673,7 @@ CREATE INDEX CONCURRENTLY idx_generations_user_created ON generations(user_id, c
 
 -- Points transaction record index
 CREATE INDEX CONCURRENTLY idx_credit_transactions_user_id ON credit_transactions(user_id);
-CREATE INDEX CONCURRENTLY idx_credit_transactions_type ON credit_transactions(type);
+CREATE INDEX CONCURRENTLY idx_credit_transactions_type ON credit_transactions(transaction_type);
 CREATE INDEX CONCURRENTLY idx_credit_transactions_created_at ON credit_transactions(created_at);
 CREATE INDEX CONCURRENTLY idx_credit_transactions_user_created ON credit_transactions(user_id, created_at DESC);
 

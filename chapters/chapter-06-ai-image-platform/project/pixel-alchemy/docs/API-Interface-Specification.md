@@ -741,7 +741,7 @@ CREATE TABLE credit_transactions (
 );
 
 CREATE INDEX idx_credit_transactions_user_id ON credit_transactions(user_id);
-CREATE INDEX idx_credit_transactions_type ON credit_transactions(type);
+CREATE INDEX idx_credit_transactions_type ON credit_transactions(transaction_type);
 CREATE INDEX idx_credit_transactions_created_at ON credit_transactions(created_at);
 ```
 

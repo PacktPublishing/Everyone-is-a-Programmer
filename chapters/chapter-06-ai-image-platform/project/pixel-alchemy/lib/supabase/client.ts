@@ -24,3 +24,5 @@ export const createServerSupabaseClient = () => {
     }
   });
 };
+
+export const createServiceRoleSupabaseClient = createServerSupabaseClient;

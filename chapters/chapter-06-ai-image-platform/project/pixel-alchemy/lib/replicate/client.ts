@@ -1,5 +1,24 @@
 import Replicate from 'replicate';
 
+export function normalizeReplicateStatus(status: string): string {
+  switch (status) {
+    case 'succeeded':
+    case 'successful':
+    case 'completed':
+      return 'completed';
+    case 'failed':
+    case 'canceled':
+    case 'aborted':
+      return 'failed';
+    case 'starting':
+    case 'processing':
+    case 'pending':
+      return 'processing';
+    default:
+      return status;
+  }
+}
+
 export interface GenerationParams {
   prompt: string;
   negativePrompt?: string;
@@ -31,6 +50,11 @@ export interface GenerationStatus {
   logs?: string;
 }
 
+function getReplicateWebhookUrl(): string | null {
+  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL;
+  return appUrl ? `${appUrl.replace(/\/$/, '')}/api/webhook/replicate` : null;
+}
+
 export class ReplicateClient {
   private client: Replicate;
   
@@ -55,12 +79,18 @@ export class ReplicateClient {
           ...(params.inputImage && { image: params.inputImage }),
           ...(params.maskImage && { mask: params.maskImage }),
           ...(params.denoisingStrength && { denoising_strength: params.denoisingStrength })
-        }
+        },
+        ...(getReplicateWebhookUrl()
+          ? {
+              webhook: getReplicateWebhookUrl()!,
+              webhook_events_filter: ['completed'],
+            }
+          : {}),
       });
       
       return {
         id: prediction.id,
-        status: prediction.status,
+        status: normalizeReplicateStatus(prediction.status),
         urls: prediction.urls,
         output: prediction.output
       };
@@ -76,11 +106,13 @@ export class ReplicateClient {
       
       return {
         id: prediction.id,
-        status: prediction.status,
+        status: normalizeReplicateStatus(prediction.status),
         progress: this.calculateProgress(prediction),
         output: prediction.output,
         error: prediction.error,
-        logs: prediction.logs?.join('\n')
+        logs: Array.isArray(prediction.logs)
+          ? prediction.logs.join('\n')
+          : prediction.logs ?? undefined
       };
     } catch (error) {
       console.error('Failed to get prediction status:', error);
@@ -103,8 +135,12 @@ export class ReplicateClient {
     if (prediction.status === 'canceled') return 0;
     
     // Based on log parsing progress
-    const logs = prediction.logs || [];
-    const logText = logs.join('\n');
+    const logs = prediction.logs;
+    const logText = Array.isArray(logs)
+      ? logs.join('\n')
+      : typeof logs === 'string'
+        ? logs
+        : '';
     const progressMatch = logText.match(/(\d+)%/);
     return progressMatch ? parseInt(progressMatch[1]) : 0;
   }

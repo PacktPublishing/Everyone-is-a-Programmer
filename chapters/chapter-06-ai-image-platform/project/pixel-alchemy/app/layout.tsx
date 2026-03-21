@@ -14,7 +14,7 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: "Pixel Alchemy - Turn your imagination into visual gold",
-  description: "AIDriven image generation platform makes creativity unlimited possibilities",
+  description: "An AI image generation platform for turning prompts into polished visuals.",
   generator: "v0.app",
 }
 
@@ -24,7 +24,7 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="zh-CN" className="dark">
+    <html lang="en" className="dark">
       <body className={`font-sans ${inter.variable} ${GeistMono.variable}`}>
         <Suspense fallback={null}>{children}</Suspense>
         <Analytics />

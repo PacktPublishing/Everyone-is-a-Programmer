@@ -309,6 +309,15 @@ export interface Database {
       };
     };
     Functions: {
+      consume_user_credits: {
+        Args: {
+          p_user_id: string;
+          p_amount: number;
+          p_related_id?: string;
+          p_description?: string;
+        };
+        Returns: boolean;
+      };
       update_user_credits: {
         Args: {
           p_user_id: string;

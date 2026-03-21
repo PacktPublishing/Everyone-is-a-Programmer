@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
         ...(inputImages && inputImages.length > 0 && { image: inputImages[0] })
       },
       webhook: `${process.env.NEXT_PUBLIC_APP_URL}/api/webhook/replicate`,
-      webhook_events_filter: ["completed", "failed"]
+      webhook_events_filter: ["completed"]
     });
 
     // 6. Update task status
@@ -234,8 +234,16 @@ export async function POST(request: NextRequest) {
     // 2. parse Webhook data
     const body = await request.json();
     const { id: predictionId, status, output, error } = body;
+    const normalizedStatus =
+      status === 'succeeded' || status === 'successful' ? 'completed' : status;
 
-    console.log('Replicate webhook received:', { predictionId, status, output, error });
+    console.log('Replicate webhook received:', {
+      predictionId,
+      status,
+      normalizedStatus,
+      output,
+      error
+    });
 
     // 3. Find the corresponding task
     const { data: task, error: taskError } = await supabase
@@ -250,7 +258,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Process task results
-    if (status === 'completed' && output) {
+    if (normalizedStatus === 'completed' && output) {
       // Upload pictures to Cloudflare R2
       const imageUrls = await uploadImagesToR2(output, task.user_id);
       
@@ -258,7 +266,7 @@ export async function POST(request: NextRequest) {
       await supabase
         .from('generation_tasks')
         .update({
-          status: 'completed',
+          status: normalizedStatus,
           output_images: imageUrls,
           updated_at: new Date().toISOString()
         })
@@ -278,22 +286,13 @@ export async function POST(request: NextRequest) {
       }
 
       // Points deducted
-      await supabase
-        .from('user_profiles')
-        .update({
-          credits: supabase.sql`credits - ${task.cost_credits}`
-        })
-        .eq('id', task.user_id);
-
-      // Record points consumption
-      await supabase
-        .from('credit_transactions')
-        .insert({
-          user_id: task.user_id,
-          transaction_type: 'consumption',
-          amount: -task.cost_credits,
-          description: `Image generation: ${task.task_type}`
-        });
+      await supabase.rpc('update_user_credits', {
+        p_user_id: task.user_id,
+        p_amount: -task.cost_credits,
+        p_type: 'consumption',
+        p_description: `Image generation: ${task.task_type}`,
+        p_related_id: task.id
+      });
 
     } else if (status === 'failed' || error) {
       // Handle failure situations
@@ -307,21 +306,13 @@ export async function POST(request: NextRequest) {
         .eq('id', task.id);
 
       // Return points
-      await supabase
-        .from('user_profiles')
-        .update({
-          credits: supabase.sql`credits + ${task.cost_credits}`
-        })
-        .eq('id', task.user_id);
-
-      await supabase
-        .from('credit_transactions')
-        .insert({
-          user_id: task.user_id,
-          transaction_type: 'refund',
-          amount: task.cost_credits,
-          description: `Refund for failed generation: ${task.task_type}`
-        });
+      await supabase.rpc('update_user_credits', {
+        p_user_id: task.user_id,
+        p_amount: task.cost_credits,
+        p_type: 'refund',
+        p_description: `Refund for failed generation: ${task.task_type}`,
+        p_related_id: task.id
+      });
     }
 
     return NextResponse.json({ detail: "Webhook processed successfully" }, { status: 200 });

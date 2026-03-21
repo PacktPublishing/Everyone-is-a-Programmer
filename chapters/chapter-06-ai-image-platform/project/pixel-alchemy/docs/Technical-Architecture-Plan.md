@@ -318,7 +318,7 @@ export async function POST(request: NextRequest) {
         ...(inputImages && inputImages.length > 0 && { image: inputImages[0] })
       },
       webhook: `${process.env.NEXT_PUBLIC_APP_URL}/api/webhook/replicate`,
-      webhook_events_filter: ["completed", "failed"]
+      webhook_events_filter: ["completed"]
     });
 
     // 6. Update task status
@@ -394,8 +394,16 @@ export async function POST(request: NextRequest) {
     // 2. parse Webhook data
     const body = await request.json();
     const { id: predictionId, status, output, error } = body;
+    const normalizedStatus =
+      status === 'succeeded' || status === 'successful' ? 'completed' : status;
 
-    console.log('Replicate webhook received:', { predictionId, status, output, error });
+    console.log('Replicate webhook received:', {
+      predictionId,
+      status,
+      normalizedStatus,
+      output,
+      error
+    });
 
     // 3. Find the corresponding task
     const { data: task, error: taskError } = await supabase
@@ -410,7 +418,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Process task results
-    if (status === 'completed' && output) {
+    if (normalizedStatus === 'completed' && output) {
       // Upload pictures to Cloudflare R2
       const imageUrls = await uploadImagesToR2(output, task.user_id);
       
@@ -418,7 +426,7 @@ export async function POST(request: NextRequest) {
       await supabase
         .from('generation_tasks')
         .update({
-          status: 'completed',
+          status: normalizedStatus,
           output_images: imageUrls,
           updated_at: new Date().toISOString()
         })
@@ -438,22 +446,13 @@ export async function POST(request: NextRequest) {
       }
 
       // Points deducted
-      await supabase
-        .from('user_profiles')
-        .update({
-          credits: supabase.sql`credits - ${task.cost_credits}`
-        })
-        .eq('id', task.user_id);
-
-      // Record points consumption
-      await supabase
-        .from('credit_transactions')
-        .insert({
-          user_id: task.user_id,
-          transaction_type: 'consumption',
-          amount: -task.cost_credits,
-          description: `Image generation: ${task.task_type}`
-        });
+      await supabase.rpc('update_user_credits', {
+        p_user_id: task.user_id,
+        p_amount: -task.cost_credits,
+        p_type: 'consumption',
+        p_description: `Image generation: ${task.task_type}`,
+        p_related_id: task.id
+      });
 
       // Send real-time notifications (optional)
       // await sendRealtimeNotification(task.user_id, 'Image generation completed');
@@ -470,21 +469,13 @@ export async function POST(request: NextRequest) {
         .eq('id', task.id);
 
       // Return points
-      await supabase
-        .from('user_profiles')
-        .update({
-          credits: supabase.sql`credits + ${task.cost_credits}`
-        })
-        .eq('id', task.user_id);
-
-      await supabase
-        .from('credit_transactions')
-        .insert({
-          user_id: task.user_id,
-          transaction_type: 'refund',
-          amount: task.cost_credits,
-          description: `Refund for failed generation: ${task.task_type}`
-        });
+      await supabase.rpc('update_user_credits', {
+        p_user_id: task.user_id,
+        p_amount: task.cost_credits,
+        p_type: 'refund',
+        p_description: `Refund for failed generation: ${task.task_type}`,
+        p_related_id: task.id
+      });
     }
 
     return NextResponse.json({ detail: "Webhook processed successfully" }, { status: 200 });
@@ -787,11 +778,9 @@ export async function POST(request: NextRequest) {
         await handleCheckoutCompleted(session);
         break;
       
-      case 'customer.subscription.created':
-      case 'customer.subscription.updated':
-      case 'customer.subscription.deleted':
-        const subscription = event.data.object as Stripe.Subscription;
-        await handleSubscriptionChange(subscription);
+      case 'checkout.session.expired':
+        const expiredSession = event.data.object as Stripe.Checkout.Session;
+        await markOrderStatus(expiredSession, 'expired');
         break;
     }
 
@@ -803,51 +792,39 @@ export async function POST(request: NextRequest) {
 }
 
 async function handleCheckoutCompleted(session: Stripe.Checkout.Session) {
-  const { userId, credits } = session.metadata!;
-  
-  // Add points to user account
-  await supabase
-    .from('user_profiles')
-    .update({
-      credits: supabase.sql`credits + ${parseInt(credits)}`
-    })
-    .eq('id', userId);
+  const { orderId, userId, credits } = session.metadata!;
 
-  // record transaction
+  await supabase.rpc('update_user_credits', {
+    p_user_id: userId,
+    p_amount: parseInt(credits),
+    p_type: 'purchase',
+    p_description: `Purchased ${credits} credits`,
+    p_related_id: orderId
+  });
+
   await supabase
-    .from('credit_transactions')
-    .insert({
-      user_id: userId,
-      transaction_type: 'purchase',
-      amount: parseInt(credits),
+    .from('orders')
+    .update({
+      status: 'completed',
+      stripe_session_id: session.id,
       stripe_payment_intent_id: session.payment_intent as string,
-      description: `Purchased ${credits} credits`
-    });
+      paid_at: new Date().toISOString()
+    })
+    .eq('id', orderId);
 }
 
-async function handleSubscriptionChange(subscription: Stripe.Subscription) {
-  // Handle subscription status changes
-  const customerId = subscription.customer as string;
-  
-  // Find users
-  const { data: user } = await supabase
-    .from('user_profiles')
-    .select('id')
-    .eq('stripe_customer_id', customerId)
-    .single();
+async function markOrderStatus(session: Stripe.Checkout.Session, status: string) {
+  const orderId = session.metadata?.orderId;
 
-  if (user) {
-    await supabase
-      .from('stripe_subscriptions')
-      .upsert({
-        user_id: user.id,
-        stripe_subscription_id: subscription.id,
-        stripe_customer_id: customerId,
-        status: subscription.status,
-        current_period_start: new Date(subscription.current_period_start * 1000),
-        current_period_end: new Date(subscription.current_period_end * 1000)
-      });
-  }
+  if (!orderId) return;
+
+  await supabase
+    .from('orders')
+    .update({
+      status,
+      stripe_session_id: session.id
+    })
+    .eq('id', orderId);
 }
 ```
 

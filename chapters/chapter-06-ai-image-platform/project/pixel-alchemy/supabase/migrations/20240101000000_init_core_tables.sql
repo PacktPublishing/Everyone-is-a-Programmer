@@ -106,7 +106,7 @@ CREATE INDEX idx_user_images_generation_type ON user_images(generation_type);
 CREATE INDEX idx_user_images_is_public ON user_images(is_public);
 CREATE INDEX idx_user_images_tags ON user_images USING GIN(tags);
 CREATE INDEX idx_credit_transactions_user_id ON credit_transactions(user_id);
-CREATE INDEX idx_credit_transactions_type ON credit_transactions(type);
+CREATE INDEX idx_credit_transactions_type ON credit_transactions(transaction_type);
 CREATE INDEX idx_credit_transactions_created_at ON credit_transactions(created_at);
 CREATE INDEX idx_orders_user_id ON orders(user_id);
 CREATE INDEX idx_orders_status ON orders(status);
