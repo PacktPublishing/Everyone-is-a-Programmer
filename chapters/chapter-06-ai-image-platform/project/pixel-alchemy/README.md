@@ -64,7 +64,25 @@ NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=your_stripe_publishable_key
 
 # Application configuration
 NEXT_PUBLIC_APP_URL=http://localhost:3000
+
+# Optional public base URL for server-to-server webhooks during local development
+APP_URL=https://your-tunnel.ngrok-free.app
 ```
+
+`STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` are required for local development if you want the pricing and payment flow to work correctly. The checkout session route uses the secret key, and the Stripe webhook route verifies incoming events with the webhook secret.
+
+Use `NEXT_PUBLIC_APP_URL` for the browser address you open locally. If you want Replicate webhooks to work during local development, set `APP_URL` to a temporary public tunnel URL such as an ngrok or Cloudflare Tunnel address. Server-side webhook generation prefers `APP_URL` and falls back to `NEXT_PUBLIC_APP_URL` only when no public URL is configured.
+
+For Stripe, you have two local testing options:
+
+- Use the same public tunnel URL and register `/api/webhook/stripe` as a webhook endpoint in Stripe.
+- Or use the Stripe CLI to forward events directly to your local server:
+
+```bash
+stripe listen --forward-to localhost:3000/api/webhook/stripe
+```
+
+The Stripe CLI prints a temporary webhook signing secret. Use that value for `STRIPE_WEBHOOK_SECRET` while testing locally with CLI forwarding.
 
 ### 4. set up Supabase
 
@@ -241,6 +259,7 @@ in Vercel Set the following environment variables in:
 - `STRIPE_WEBHOOK_SECRET`
 - `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY`
 - `NEXT_PUBLIC_APP_URL`
+- `APP_URL` (optional for public local webhook testing)
 
 ## Development Guide
 

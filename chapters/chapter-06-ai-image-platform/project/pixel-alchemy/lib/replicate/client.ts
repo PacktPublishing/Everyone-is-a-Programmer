@@ -51,7 +51,7 @@ export interface GenerationStatus {
 }
 
 function getReplicateWebhookUrl(): string | null {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL;
+  const appUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL;
   return appUrl ? `${appUrl.replace(/\/$/, '')}/api/webhook/replicate` : null;
 }
 

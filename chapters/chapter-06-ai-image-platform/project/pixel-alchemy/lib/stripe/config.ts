@@ -16,10 +16,10 @@ export function getStripeClient() {
 }
 
 export function getAppUrl() {
-  const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? process.env.APP_URL;
+  const appUrl = process.env.APP_URL ?? process.env.NEXT_PUBLIC_APP_URL;
 
   if (!appUrl) {
-    throw new Error('NEXT_PUBLIC_APP_URL or APP_URL must be configured');
+    throw new Error('APP_URL or NEXT_PUBLIC_APP_URL must be configured');
   }
 
   return appUrl.replace(/\/$/, '');

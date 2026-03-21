@@ -15,6 +15,16 @@ function question(prompt) {
   });
 }
 
+async function requiredQuestion(prompt) {
+  while (true) {
+    const answer = (await question(prompt)).trim();
+    if (answer) {
+      return answer;
+    }
+    console.log('This value is required.');
+  }
+}
+
 async function setup() {
   console.log('🎨 Pixel Alchemy Project setup wizard\n');
   
@@ -32,21 +42,22 @@ async function setup() {
   console.log('Please provide the following configuration information:\n');
 
   // Supabase Configuration
-  const supabaseUrl = await question('Supabase URL: ');
-  const supabaseAnonKey = await question('Supabase Anon Key: ');
-  const supabaseServiceKey = await question('Supabase Service Role Key: ');
+  const supabaseUrl = await requiredQuestion('Supabase URL: ');
+  const supabaseAnonKey = await requiredQuestion('Supabase Anon Key: ');
+  const supabaseServiceKey = await requiredQuestion('Supabase Service Role Key: ');
 
   // Replicate Configuration
-  const replicateToken = await question('Replicate API Token: ');
+  const replicateToken = await requiredQuestion('Replicate API Token: ');
   const replicateWebhookSecret = await question('Replicate Webhook Secret (optional): ');
 
   // Stripe Configuration
-  const stripeSecretKey = await question('Stripe Secret Key (optional): ');
-  const stripeWebhookSecret = await question('Stripe Webhook Secret (optional): ');
+  const stripeSecretKey = await requiredQuestion('Stripe Secret Key: ');
+  const stripeWebhookSecret = await requiredQuestion('Stripe Webhook Secret: ');
   const stripePublishableKey = await question('Stripe Publishable Key (optional): ');
 
   // Application configuration
-  const appUrl = await question('application URL (default: http://localhost:3000): ') || 'http://localhost:3000';
+  const localAppUrl = await question('Local application URL (default: http://localhost:3000): ') || 'http://localhost:3000';
+  const publicAppUrl = await question('Public webhook URL (optional, for ngrok/tunnel): ');
 
   // Generate .env.local File content
   const envContent = `# Supabase Configuration
@@ -59,12 +70,13 @@ REPLICATE_API_TOKEN=${replicateToken}
 ${replicateWebhookSecret ? `REPLICATE_WEBHOOK_SIGNING_SECRET=${replicateWebhookSecret}` : ''}
 
 # Stripe Configuration
-${stripeSecretKey ? `STRIPE_SECRET_KEY=${stripeSecretKey}` : ''}
-${stripeWebhookSecret ? `STRIPE_WEBHOOK_SECRET=${stripeWebhookSecret}` : ''}
+STRIPE_SECRET_KEY=${stripeSecretKey}
+STRIPE_WEBHOOK_SECRET=${stripeWebhookSecret}
 ${stripePublishableKey ? `NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=${stripePublishableKey}` : ''}
 
 # Application configuration
-NEXT_PUBLIC_APP_URL=${appUrl}
+NEXT_PUBLIC_APP_URL=${localAppUrl}
+${publicAppUrl ? `APP_URL=${publicAppUrl}` : ''}
 `;
 
   // Write .env.local document
