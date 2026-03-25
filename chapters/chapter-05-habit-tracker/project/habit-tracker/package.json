@@ -13,8 +13,8 @@
     "check:env": "node scripts/check-env.js"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "^3.864.0",
-    "@aws-sdk/s3-request-presigner": "^3.864.0",
+    "@aws-sdk/client-s3": "^3.1016.0",
+    "@aws-sdk/s3-request-presigner": "^3.1016.0",
     "@headlessui/react": "^2.2.7",
     "@heroicons/react": "^2.2.0",
     "@react-email/components": "^0.5.0",
